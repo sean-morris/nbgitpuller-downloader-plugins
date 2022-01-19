@@ -1,8 +1,8 @@
 import os
 import pytest
+import responses
 import shutil
 import nbgitpuller_downloader_plugins_util.plugin_helper as ph
-from aioresponses import aioresponses
 
 test_files_dir = os.getcwd() + "/tests/test_files"
 archive_base = "/tmp/test_files"
@@ -44,7 +44,7 @@ def test_extract_file_extension():
 @pytest.mark.asyncio
 async def test_initialize_local_repo(test_configuration):
     yield_str = ""
-    async for line in ph.initialize_local_repo(origin_repo):
+    for line in ph.initialize_local_repo(origin_repo):
         yield_str += line
     assert "init --bare" in yield_str
     assert os.path.isdir(origin_repo)
@@ -52,11 +52,11 @@ async def test_initialize_local_repo(test_configuration):
 
 @pytest.mark.asyncio
 async def test_clone_local_origin_repo(test_configuration):
-    async for line in ph.initialize_local_repo(origin_repo):
+    for line in ph.initialize_local_repo(origin_repo):
         pass
 
     yield_str = ""
-    async for line in ph.clone_local_origin_repo(origin_repo, temp_download_repo):
+    for line in ph.clone_local_origin_repo(origin_repo, temp_download_repo):
         yield_str += line
 
     assert "Cloning into" in yield_str
@@ -66,36 +66,35 @@ async def test_clone_local_origin_repo(test_configuration):
 @pytest.mark.asyncio
 async def test_execute_unarchive(test_configuration):
     yield_str = ""
-    async for line in ph.execute_unarchive("zip", archive_base + ".zip", temp_download_repo):
+    for line in ph.execute_unarchive("zip", archive_base + ".zip", temp_download_repo):
         yield_str += line
     assert os.path.isfile("/tmp/download/test.txt")
 
 
 @pytest.mark.asyncio
 async def test_push_to_local_origin(test_configuration):
-    async for line in ph.initialize_local_repo(origin_repo):
+    for line in ph.initialize_local_repo(origin_repo):
         pass
 
-    async for line in ph.clone_local_origin_repo(origin_repo, temp_download_repo):
+    for line in ph.clone_local_origin_repo(origin_repo, temp_download_repo):
         pass
 
-    async for line in ph.execute_unarchive("zip", archive_base + ".zip", temp_download_repo):
+    for line in ph.execute_unarchive("zip", archive_base + ".zip", temp_download_repo):
         pass
 
     yield_str = ""
-    async for line in ph.push_to_local_origin(temp_download_repo):
+    for line in ph.push_to_local_origin(temp_download_repo):
         yield_str += line
     assert "[new branch]" in yield_str
 
 
 @pytest.mark.asyncio
 async def test_download_archive(test_configuration):
-    args = {}
-    args["repo"] = "http://example.org/mocked-download-url"
-    with aioresponses() as mocked:
-        mocked.get(args["repo"], status=200, body=b'Pretend you are zip file being downloaded')
-        yield_str = ""
-        async for line in ph.download_archive(args["repo"], temp_archive_download + "downloaded.zip"):
-            yield_str += line
+    args = {"repo": "http://example.org/mocked-download-url"}
+    responses.add(responses.GET, args["repo"],
+                  body=b'Pretend you are zip file being downloaded', status=200)
+    yield_str = ""
+    for line in ph.download_archive(args["repo"], temp_archive_download + "downloaded.zip"):
+        yield_str += line
     assert 'Downloading archive' in yield_str
     assert os.path.isfile(temp_archive_download + "downloaded.zip")

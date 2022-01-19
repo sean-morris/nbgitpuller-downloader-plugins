@@ -3,16 +3,17 @@ from nbgitpuller_downloader_plugins_util.plugin_helper import HandleFilesHelper
 
 
 @hookimpl
-def handle_files(helper_args, query_line_args):
+def prepare_non_git_source_local_origin(git_puller_ref):
     """
-    This begins the event loop that will both download the compressed archive and send messages
-    about the progress of the download to the UI.
-    :param dict helper_args: the function, helper_args["progress_func"], that writes messages to
-    the progress stream in the browser window and the download_q, helper_args["download_q"] the progress function uses.
-    :param dict query_line_args: this includes all the arguments included on the nbgitpuller URL
-    :return two parameter json unzip_dir and origin_repo_path
+    The function handles a set of source files from any publicly available URL. The handle_files_helper function prepares a local origin git repo
+    with the downloaded archive pointed to by git_puller_ref.git_url; the git_url points to a compressed archive stored at any publicly available URL.
+    The archive is downloaded, decompressed and pushed(in a git sense) to the local origin repo. Once the local origin repo is prepared,
+    the nbgitpuller.GitPuller class pulls, merges, etc. the files into the users jupyter folder.
+
+    :param git_puller_ref the reference to nbgitpuller's GitPuller class containing state information from the request
+    :return two parameter json source_dir_name and local_origin_repo_path
     :rtype json object
     """
-    hfh = HandleFilesHelper(helper_args, query_line_args)
+    hfh = HandleFilesHelper(git_puller_ref)
     output_info = yield from hfh.handle_files_helper()
-    helper_args["handle_files_output"] = output_info
+    return output_info

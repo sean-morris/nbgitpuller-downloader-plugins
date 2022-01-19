@@ -7,38 +7,36 @@ DOWNLOAD_URL = "https://docs.google.com/uc?export=download"
 
 
 @hookimpl
-def handle_files(helper_args, query_line_args):
+def prepare_non_git_source_local_origin(git_puller_ref):
     """
-    This function calls nbgitpuller's handle_files_helper after first determining the
-    file extension(e.g. zip, tar.gz, etc). Google Drive does not use the name of the file to
-    identify the file on the URL so we must download the file first to get the extension from the
-    response, set up a specialized download function and parameters and then pass off handling
-    to nbgitpuller.
-    :param dict helper_args: the function, helper_args["progress_func"], that writes messages to
-    the progress stream in the browser window and the download_q, helper_args["download_q"] the progress function uses.
-    :param dict query_line_args: this includes all the arguments included on the nbgitpuller URL
-    :return two parameter json output_dir and origin_repo_path
+    The function handles a set of compressed source files from Google Drive. The handle_files_helper function prepares a local origin git repo
+    with the downloaded archive pointed to by git_puller_ref.git_url; the git_url points to a compressed archive publicly shared in GoogleDrive.
+    The archive is downloaded, decompressed and pushed(in a git sense) to the local origin repo. Once the local origin repo is prepared,
+    the nbgitpuller.GitPuller class pulls, merges, etc. the files into the users jupyter folder.
+
+    :param git_puller_ref the reference to nbgitpuller's GitPuller class containing state information from the request
+    :return two parameter json source_dir_name and local_origin_repo_path
     :rtype json object
     """
-    repo = query_line_args["repo"]
+    repo = git_puller_ref.git_url
     yield "Determining type of archive...\n"
     response = get_response_from_drive(DOWNLOAD_URL, get_id(repo))
     ext = determine_file_extension_from_response(response)
     yield f"Archive is: {ext}\n"
-    helper_args["extension"] = ext
-    helper_args["download_func"] = download_archive_for_google
+    git_puller_ref.other_kw_args["extension"] = ext
+    git_puller_ref.other_kw_args["download_func"] = download_archive_for_google
 
-    hfh = HandleFilesHelper(helper_args, query_line_args)
+    hfh = HandleFilesHelper(git_puller_ref)
     output_info = yield from hfh.handle_files_helper()
-    helper_args["handle_files_output"] = output_info
+    return output_info
 
 
 def get_id(repo):
     """
     This gets the id of the file from the URL.
 
-    :param str repo: the url to the compressed file contained the google id
-    :return the google drive id of the file to be downloaded
+    :param str repo: the url to the compressed file contained the Google Drive id
+    :return the Google Drive id of the file to be downloaded
     :rtype str
     """
     start_id_index = repo.index("d/") + 2
@@ -48,10 +46,11 @@ def get_id(repo):
 
 def get_confirm_token(session):
     """
-    Google may include a confirm dialog if the file is too big. This retreives the
+    Google may include a confirm dialog if the file is too big. This retrieves the
     confirmation token and uses it to complete the download.
 
-    :param requests.Session session: used to the get the cookies from the reponse
+    :param session: used to the get the cookies from the response
+    :type session requests.Session
     :return the cookie if found or None if not found
     :rtype str
     """
@@ -62,19 +61,19 @@ def get_confirm_token(session):
     return None
 
 
-def download_archive_for_google(repo=None, temp_download_file=None):
+def download_archive_for_google(source_url=None, temp_download_file=None):
     """
     This requests the file from the repo(url) given and saves it to the disk. This is executed
     in plugin_helper.py and note that the parameters to this function are the same as the standard
     parameters used by the standard download_archive function in plugin_helper. You may also note that I let
     plugin_helper handle passing the temp_download_file to the function
 
-    :param str repo: the name of the repo
+    :param str source_url: the url to compressed archive in GoogleDrove
     :param str temp_download_file: the path to save the requested file to
     """
     yield "Downloading archive ...\n"
     try:
-        file_id = get_id(repo)
+        file_id = get_id(source_url)
         with requests.Session() as session:
             with session.get(DOWNLOAD_URL, params={'id': file_id}) as response:
                 token = get_confirm_token(session)
@@ -94,17 +93,18 @@ def download_archive_for_google(repo=None, temp_download_file=None):
     except Exception as ex:
         raise ex
 
+
 def get_response_from_drive(url, file_id):
     """
     You need to check to see that Google Drive has not asked the
     request to confirm that they disabled the virus scan on files that
-    are bigger than 100MB(The size is mentioned online but I did not see
+    are bigger than 100MB(The size is mentioned online but, I did not see
     confirmation - something larger essentially). For large files, you have
     to request again but this time putting the 'confirm=XXX' as a query
     parameter.
 
-    :param str url: the google download URL
-    :param str file_id: the google id of the file to download
+    :param str url: the Google Drive download URL
+    :param str file_id: the Google Drive id of the file to download
     :return response object
     :rtype json object
     """
@@ -121,7 +121,8 @@ def get_response_from_drive(url, file_id):
 def determine_file_extension_from_response(response):
     """
     This retrieves the file extension from the response.
-    :param requests.Response response: the response object from the download
+    :param response the response object from the download
+    :type response: requests.Response
     :return the extension indicating the file compression(e.g. zip, tgz)
     :rtype str
     """
