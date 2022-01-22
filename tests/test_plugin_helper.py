@@ -2,7 +2,6 @@ import os
 import pytest
 import shutil
 import nbgitpuller_downloader_plugins_util.plugin_helper as ph
-from aioresponses import aioresponses
 
 test_files_dir = os.getcwd() + "/tests/test_files"
 archive_base = "/tmp/test_files"

@@ -54,10 +54,10 @@ def execute_cmd(cmd, **kwargs):
 
 def initialize_local_repo(local_repo_path):
     """
-    Sets up the a local repo that acts like a remote; yields the
+    Sets up a local repo that acts like a remote; yields the
     output from the git init
 
-    :param str local_repo_path: the local path where the git repo is initialized
+    :param str local_repo_path: the local path where the local git repo is initialized
     """
     yield "Initializing repo ...\n"
     logging.info(f"Creating local_repo_path: {local_repo_path}")
@@ -68,15 +68,14 @@ def initialize_local_repo(local_repo_path):
 
 def clone_local_origin_repo(origin_repo_path, temp_download_repo):
     """
-    Cloned the origin(which is local) to the folder, temp_download_repo.
+    Cloned the local origin repo(origin_repo_path) to the folder, temp_download_repo.
     The folder, temp_download_repo, acts like the space where someone makes changes
-    to master notebooks and then pushes the changes to origin. In other words,
+    to master notebooks and then pushes the changes back to the local origin repo. In summary,
     the folder, temp_download_repo, is where the compressed archive is downloaded,
-    unarchived, and then pushed to the origin.
+    unarchived, and then pushed to the local origin repo.
 
-    :param str origin_repo_path: the local path we used to git init into
-    :param str temp_download_repo: folder where the compressed archive
-    is downloaded to
+    :param str origin_repo_path: the local path initialized as a git repo by git init
+    :param str temp_download_repo: folder where the compressed archive is downloaded and decompressed
     """
     yield "Cloning repo ...\n"
     if os.path.exists(temp_download_repo):
@@ -91,11 +90,10 @@ def clone_local_origin_repo(origin_repo_path, temp_download_repo):
 
 def extract_file_extension(url):
     """
-    The file extension(eg. zip, tgz, etc) is extracted from the url to facilitate de-compressing the file
+    The file extension(e.g. zip, tgz, etc.) is extracted from the url to facilitate de-compressing the file
     using the correct application -- (zip, tar).
 
-    :param str url: the url contains the extension we need to determine
-    what kind of compression is used on the file being downloaded
+    :param str url: the url contains the extension we need to determine what kind of compression is used on the file being downloaded
     """
     u = urlparse(url)
     url_arr = u.path.split(".")
@@ -120,15 +118,15 @@ def execute_unarchive(ext, temp_download_file, temp_download_repo):
         yield e
 
 
-def download_archive(repo=None, temp_download_file=None):
+def download_archive(source_url=None, temp_download_file=None):
     """
-    This requests the file from the repo(url) given and saves it to the disk
+    This requests the file from the source_url given and saves it to the disk
 
-    :param str repo: the git repo path
+    :param str source_url: the url to source files to be downloaded
     :param str temp_download_file: the path to save the requested file to
     """
     yield "Downloading archive ...\n"
-    with requests.get(repo, stream=True) as r:
+    with requests.get(source_url, stream=True) as r:
         with open(temp_download_file, 'ab') as f:
             count_chunks = 1
             for chunk in r.iter_content(chunk_size=1024):
@@ -144,10 +142,9 @@ def download_archive(repo=None, temp_download_file=None):
 
 def push_to_local_origin(temp_download_repo):
     """
-    The unarchived files are pushed back to the origin
+    The unarchived files are pushed back to the local origin repo
 
-    :param str temp_download_repo: the current working directly of folder
-    where the archive had been downloaded and unarchived
+    :param str temp_download_repo: the current working directly of folder where the archive had been downloaded and unarchived
     """
     for e in execute_cmd(["git", "add", "."], cwd=temp_download_repo):
         yield e
@@ -168,69 +165,69 @@ class HandleFilesHelper:
     This class is needed to handle the use of dir_names inside the async generator as well as in the return object for
     the function handle_files_helper.
     """
-    def __init__(self, repo_parent_dir, other_kw_args):
+    def __init__(self, git_puller_ref):
         """
-        This sets up the repo_parent_dir and other_kw_args for use in the handle_files_helper and generator functions.
-
-        :param str repo_parent_dir: : the directory where the archive is downloaded to
-        :param dict other_kw_args: key-value pairs may include including the:
-            - repo,
-            - provider,
+        This sets up the object with state from the git_puller_ref for use in the handle_files_helper and generator functions.
+        :param git_puller_ref: the state includes:
+            - git_url,
+            - content_provider,
             - repo_parent_dir,
-            - download_func [OPTIONAL] download function
-            - download_func_params [OPTIONAL] download parameters in the case
-                that the source needs to handle the download in a specific way(e.g. google
-                requires a confirmation of the download)
-            - extension (e.g. zip, tar) ] [OPTIONAL] this may or may not be included. If the repo name contains
-                name of archive (e.g. example.zip) then this function can determine the extension for you; if not it
-                needs to be provided.
+            - other_kw_args:
+                - download_func [OPTIONAL] download function
+                - download_func_params [OPTIONAL] download parameters in the case
+                    that the source needs to handle the download in a specific way(e.g. google
+                    requires a confirmation of the download)
+                - extension (e.g. zip, tar) [OPTIONAL] this may or may not be included. If the repo name contains
+                    name of archive (e.g. example.zip) then this function can determine the extension for you; if not it
+                    needs to be provided.
+        :type git_puller_ref nbgitpuller.GitPuller
         """
         self.dir_names = None
-        self.url = other_kw_args["repo"].translate(str.maketrans('', '', string.punctuation))
-        self.content_provider = other_kw_args["contentProvider"]
-        self.repo = other_kw_args["repo"]
-        self.repo_parent_dir = repo_parent_dir
-        self.origin_repo = f"{self.repo_parent_dir}{CACHED_ORIGIN_NON_GIT_REPO}{self.content_provider}/{self.url}/"
+        self.source_url = git_puller_ref.git_url
+        self.content_provider = git_puller_ref.content_provider
+        self.repo_parent_dir = git_puller_ref.repo_parent_dir
+        source_origin_path_part = git_puller_ref.git_url.translate(str.maketrans('', '', string.punctuation))
+        self.local_origin_repo = f"{self.repo_parent_dir}{CACHED_ORIGIN_NON_GIT_REPO}{self.content_provider}/{source_origin_path_part}/"
         self.temp_download_dir = tempfile.TemporaryDirectory()
 
-        # you can optionally pass the extension of your archive(e.g zip) if it is not identifiable from the URL file name
+        # you can optionally pass the extension of your archive(e.g. zip) if it is not identifiable from the URL file name
         # otherwise the extract_file_extension function will pull it off the repo name
-        if "extension" not in other_kw_args:
-            self.ext = extract_file_extension(other_kw_args["repo"])
+        if "extension" not in git_puller_ref.other_kw_args:
+            self.ext = extract_file_extension(git_puller_ref.git_url)
         else:
-            self.ext = other_kw_args['extension']
+            self.ext = git_puller_ref.other_kw_args['extension']
         self.temp_download_file = f"{self.temp_download_dir.name}/download.{self.ext}"
         self.download_func = download_archive
         self.download_args = {
-            "repo": self.repo,
+            "source_url": self.source_url,
             "temp_download_file": self.temp_download_file
         }
 
         # you can pass your own download function as well as download function parameters
         # if they are different from the standard download function and parameters. Notice I add
         # the temp_download_file to the parameters
-        if "download_func" in other_kw_args:
-            self.download_func = other_kw_args["download_func"]
-        if "download_func_params" in other_kw_args:
-            other_kw_args["download_func_params"]["temp_download_file"] = self.temp_download_file
-            self.download_args = other_kw_args["download_func_params"]
+        if "download_func" in git_puller_ref.other_kw_args:
+            self.download_func = git_puller_ref.other_kw_args["download_func"]
+        if "download_func_params" in git_puller_ref.other_kw_args:
+            git_puller_ref.other_kw_args["download_func_params"]["temp_download_file"] = self.temp_download_file
+            self.download_args = git_puller_ref.other_kw_args["download_func_params"]
 
     def handle_download_and_extraction(self):
         """
-        This does all the heavy lifting in the order needed to set up your local
-        repos, the local origin, download the file, and decompress the file. When this process completes,
-        self.dir_names contains the names of where the files have been prepared for the next step. These
-        directories are passed back to nbgitpuller which then pulls(in a git way) these files as if it was
-        pulling for a remote git repository.  All the messages that are "yielded" here are being shown in the
+        This does all the heavy lifting in the order needed to set up a temporary local repo cloned from
+        the local origin repo that will the downloaded and decompressed files. When this process completes,
+        self.dir_names contains the name of directory where the source files are stared in the local origin repo as well as
+        the local path to the local origin repo. These directories are passed back to nbgitpuller which then pulls(in a git way)
+        these files as if it was pulling for a remote git repository.  All the messages that are "yielded" here are being shown in the
         UI to help the user understand the progress being made and any errors that might occur.
         """
 
         try:
-            if not os.path.exists(self.origin_repo):
-                for progress_msg in initialize_local_repo(self.origin_repo):
+            if not os.path.exists(self.local_origin_repo):
+                for progress_msg in initialize_local_repo(self.local_origin_repo):
                     yield progress_msg
 
-            for progress_msg in clone_local_origin_repo(self.origin_repo, self.temp_download_dir.name):
+            for progress_msg in clone_local_origin_repo(self.local_origin_repo, self.temp_download_dir.name):
                 yield progress_msg
 
             for progress_msg in self.download_func(**self.download_args):
@@ -268,4 +265,4 @@ class HandleFilesHelper:
         for line in self.handle_download_and_extraction():
             yield line
 
-        return {"output_dir": self.dir_names[0], "origin_repo_path": self.origin_repo}
+        return {"source_dir_name": self.dir_names[0], "local_origin_repo_path": self.local_origin_repo}
